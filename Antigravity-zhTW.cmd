@@ -1,0 +1,110 @@
+@echo off
+chcp 65001 >nul
+title Antigravity zh-TW Patch Manager
+cd /d "%~dp0"
+
+where node >nul 2>&1
+if not errorlevel 1 (
+    node "%~dp0patch-asar.js" %*
+    set "EXIT_CODE=%ERRORLEVEL%"
+    if "%~1"=="" pause
+    exit /b %EXIT_CODE%
+)
+
+set "APP_EXE=%LOCALAPPDATA%\Programs\antigravity\Antigravity.exe"
+if not exist "%APP_EXE%" set "APP_EXE=%ProgramFiles%\Antigravity\Antigravity.exe"
+if not exist "%APP_EXE%" (
+    echo [ERROR] Node.js and Antigravity.exe not found: "%APP_EXE%"
+    pause
+    exit /b 1
+)
+
+set "PATCH_JS=%~dp0patch-asar.js"
+if not "%~1"=="" (
+    set ELECTRON_RUN_AS_NODE=1
+    powershell -NoProfile -Command "& $env:APP_EXE $env:PATCH_JS @args | Out-Host; exit $LASTEXITCODE" -- %*
+    exit /b %ERRORLEVEL%
+)
+
+:FALLBACK_MENU
+echo.
+set ELECTRON_RUN_AS_NODE=1
+"%APP_EXE%" "%PATCH_JS%" --menu-prompt | find /v ""
+echo.
+set "CHOICE="
+set /p CHOICE="Select option (0-4): "
+echo.
+if "%CHOICE%"=="1" goto MENU_1
+if "%CHOICE%"=="2" goto MENU_2
+if "%CHOICE%"=="3" goto MENU_3
+if "%CHOICE%"=="4" goto MENU_4
+exit /b 0
+
+:MENU_1
+set "BIND_LNK=Y"
+set /p BIND_LNK="Bind Desktop and Start Menu shortcuts to auto-restore after updates? (Y/n): "
+if /I "%BIND_LNK%"=="n" (
+    call :RUN_PATCH_ACTION --apply
+) else (
+    call :RUN_PATCH_ACTION --apply --bind-shortcut
+)
+call :WAIT_ENTER
+goto FALLBACK_MENU
+
+:MENU_2
+set "UNBIND_LNK=Y"
+set /p UNBIND_LNK="Restore Desktop and Start Menu shortcuts to official default? (Y/n): "
+if /I "%UNBIND_LNK%"=="n" (
+    call :RUN_PATCH_ACTION --restore
+) else (
+    call :RUN_PATCH_ACTION --restore --unbind-shortcut
+)
+call :WAIT_ENTER
+goto FALLBACK_MENU
+
+:MENU_3
+"%APP_EXE%" "%PATCH_JS%" --scan | find /v ""
+call :WAIT_ENTER
+goto FALLBACK_MENU
+
+:MENU_4
+echo   [1] Enable - MyMemory Free Translation
+echo   [2] Enable - Gemini API (Gemini Flash)
+echo   [0] Disable Auto-Translate
+echo.
+set "AT_MODE="
+set /p AT_MODE="Select mode (0-2, Enter to cancel): "
+if "%AT_MODE%"=="0" "%APP_EXE%" "%PATCH_JS%" --set-auto-translate off | find /v ""
+if "%AT_MODE%"=="1" "%APP_EXE%" "%PATCH_JS%" --set-auto-translate mymemory | find /v ""
+if "%AT_MODE%"=="2" goto MENU_4_GEMINI
+call :WAIT_ENTER
+goto FALLBACK_MENU
+
+:MENU_4_GEMINI
+set "AT_KEY="
+set /p AT_KEY="Paste Gemini API Key (or press Enter to reuse existing key): "
+"%APP_EXE%" "%PATCH_JS%" --set-auto-translate gemini "%AT_KEY%" | find /v ""
+call :WAIT_ENTER
+goto FALLBACK_MENU
+
+:WAIT_ENTER
+echo.
+set "DUMMY="
+set /p DUMMY="Press Enter to return to menu..."
+exit /b 0
+
+:RUN_PATCH_ACTION
+tasklist /FI "IMAGENAME eq Antigravity.exe" /NH 2>nul | find /I "Antigravity.exe" >nul
+if errorlevel 1 goto RUN_PATCH_DIRECT
+set "CONFIRM=Y"
+set /p CONFIRM="Antigravity is running. Close, apply change, and restart? (Y/n): "
+if /I "%CONFIRM%"=="n" (
+    echo Cancelled. Please close Antigravity first.
+    exit /b 0
+)
+"%APP_EXE%" "%PATCH_JS%" %* --force-restart | find /v ""
+exit /b 0
+
+:RUN_PATCH_DIRECT
+"%APP_EXE%" "%PATCH_JS%" %* | find /v ""
+exit /b 0
