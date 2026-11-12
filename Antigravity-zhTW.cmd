@@ -41,24 +41,12 @@ if "%CHOICE%"=="4" goto MENU_4
 exit /b 0
 
 :MENU_1
-set "BIND_LNK=Y"
-set /p BIND_LNK="Bind Desktop and Start Menu shortcuts to auto-restore after updates? (Y/n): "
-if /I "%BIND_LNK%"=="n" (
-    call :RUN_PATCH_ACTION --apply
-) else (
-    call :RUN_PATCH_ACTION --apply --bind-shortcut
-)
+call :RUN_PATCH_ACTION --apply
 call :WAIT_ENTER
 goto FALLBACK_MENU
 
 :MENU_2
-set "UNBIND_LNK=Y"
-set /p UNBIND_LNK="Restore Desktop and Start Menu shortcuts to official default? (Y/n): "
-if /I "%UNBIND_LNK%"=="n" (
-    call :RUN_PATCH_ACTION --restore
-) else (
-    call :RUN_PATCH_ACTION --restore --unbind-shortcut
-)
+call :RUN_PATCH_ACTION --restore
 call :WAIT_ENTER
 goto FALLBACK_MENU
 

@@ -12,7 +12,6 @@
 
   const fs = require('fs');
   const path = require('path');
-  const { createRequire } = require('module');
   const { spawn } = require('child_process');
 
   const DICT_PATH = path.join(__dirname, 'zh-tw.json');
@@ -352,8 +351,6 @@
 
   let injectedHubCount = 0;
   let lastInjectError = '';
-  let updaterHookWarning = '';
-  let updaterWarnToasted = false;
   let watchdogAlertShown = false;
   const reportedHealthUrls = new Set();
 
@@ -404,8 +401,6 @@
         lastInjectError = '無法讀取 dom-translator.js';
         return;
       }
-      const pendingWarnJson =
-        updaterHookWarning && !updaterWarnToasted ? JSON.stringify(updaterHookWarning) : 'null';
 
       const code = `
         (function() {
@@ -416,12 +411,6 @@
               window.__AGY_ZHTW__.init(${cachedDictJson});
               didInit = true;
             }
-          }
-          var bootWarn = ${pendingWarnJson};
-          if (bootWarn && window.__AGY_ZHTW__ && typeof window.__AGY_ZHTW__.showToast === 'function') {
-            setTimeout(function() {
-              window.__AGY_ZHTW__.showToast(bootWarn, 'warn');
-            }, 4500);
           }
           return {
             didInit: didInit,
@@ -435,7 +424,6 @@
         .then((res) => {
           if (res && res.active) {
             injectedHubCount++;
-            if (updaterHookWarning) updaterWarnToasted = true;
           }
           if (res && res.didInit) {
             writeLog(`已初始化翻譯引擎至: ${url}`);
@@ -580,88 +568,82 @@
     }, 5000);
   }
 
-  function resolveAppUpdaterModule() {
-    const anchorCandidates = [];
-    if (require.main && require.main.filename) {
-      anchorCandidates.push(require.main.filename);
-    }
-    if (process.resourcesPath) {
-      anchorCandidates.push(path.join(process.resourcesPath, 'app.asar', 'dist', 'main.js'));
-    }
-    for (const anchor of anchorCandidates) {
+  function setupPostUpdatePatch() {
+    const cp = require('child_process');
+    const mod = require('module');
+    if (cp.__agyZhTwSpawnHooked) return;
+    cp.__agyZhTwSpawnHooked = true;
+
+    let postUpdateScheduled = false;
+    const origSpawn = cp.spawn;
+
+    cp.spawn = function (command, args) {
+      const child = origSpawn.apply(this, arguments);
       try {
-        const req = createRequire(anchor);
-        const mod = req('electron-updater');
-        if (mod) return mod;
+        const argList = Array.isArray(args) ? args.map(String) : [];
+        const cmdStr = String(command || '');
+        const baseExe = path.basename(cmdStr).toLowerCase();
+        if (
+          !postUpdateScheduled &&
+          baseExe.endsWith('.exe') &&
+          baseExe !== 'antigravity.exe' &&
+          argList.includes('--updated') &&
+          fs.existsSync(PATCH_SCRIPT_PATH)
+        ) {
+          postUpdateScheduled = true;
+          const realInstPath = baseExe === 'elevate.exe' ? String(argList[0] || '') : cmdStr;
+          const instName = realInstPath ? path.parse(realInstPath).name : '';
+          const isSilentOnly =
+            argList.some((a) => a.toUpperCase() === '/S') && !argList.includes('--force-run');
+          const mode = isSilentOnly ? 'silent' : 'restart';
+
+          const waitCmd = [
+            'Wait-Process -Id $env:AGY_OLD_PID -Timeout 120 -ErrorAction SilentlyContinue',
+            'Start-Sleep -Seconds 2',
+            'if ($env:AGY_INST_PID) { Wait-Process -Id $env:AGY_INST_PID -Timeout 300 -ErrorAction SilentlyContinue }',
+            'if ($env:AGY_INST_NAME) { Wait-Process -Name $env:AGY_INST_NAME -Timeout 300 -ErrorAction SilentlyContinue }',
+            'Start-Sleep -Seconds 2',
+            '$env:ELECTRON_RUN_AS_NODE = 1',
+            '& $env:AGY_APP_EXE $env:AGY_PATCH_JS --post-update $env:AGY_UPDATE_MODE | Out-Null'
+          ].join('; ');
+
+          cp.execFileSync(
+            'powershell.exe',
+            [
+              '-NoProfile',
+              '-NonInteractive',
+              '-Command',
+              `Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -WorkingDirectory $env:SystemRoot -ArgumentList '-NoProfile','-NonInteractive','-Command','${waitCmd}'`
+            ],
+            {
+              windowsHide: true,
+              cwd: process.env.SystemRoot || 'C:\\Windows',
+              env: {
+                ...process.env,
+                AGY_OLD_PID: String(process.pid),
+                AGY_INST_PID: child && child.pid ? String(child.pid) : '',
+                AGY_INST_NAME: instName,
+                AGY_APP_EXE: process.execPath,
+                AGY_PATCH_JS: PATCH_SCRIPT_PATH,
+                AGY_UPDATE_MODE: mode
+              }
+            }
+          );
+          writeLog(
+            `偵測到軟體更新啟動，等待安裝完成後自動重新套用 (mode=${mode}, installer=${instName || baseExe})`
+          );
+        }
+      } catch (err) {
+        writeLog('[ERROR] 排程更新後自動套用失敗: ' + err.message);
+      }
+      return child;
+    };
+
+    if (typeof mod.syncBuiltinESMExports === 'function') {
+      try {
+        mod.syncBuiltinESMExports();
       } catch (_) {}
     }
-    return null;
-  }
-
-  function setupSeamlessUpdateRelay() {
-    const updaterMod = resolveAppUpdaterModule();
-    const autoUpdater = updaterMod && updaterMod.autoUpdater;
-
-    if (
-      !autoUpdater ||
-      !electron.autoUpdater ||
-      typeof electron.autoUpdater.on !== 'function'
-    ) {
-      updaterHookWarning =
-        '[中文化提醒] 未偵測到官方 electron-updater 公開事件，軟體內更新自動接力未啟用（由桌面捷徑開啟仍會自動補回繁中）';
-      writeLog('[WARN] ' + updaterHookWarning);
-      return;
-    }
-
-    if (autoUpdater.__agyZhTwRelayHooked) return;
-    autoUpdater.__agyZhTwRelayHooked = true;
-    autoUpdater.autoRunAppAfterInstall = false;
-
-    let relaySpawned = false;
-    electron.autoUpdater.on('before-quit-for-update', () => {
-      if (relaySpawned) return;
-      if (!fs.existsSync(PATCH_SCRIPT_PATH)) {
-        writeLog('[ERROR] 找不到 patch-asar.js，無法執行更新後接力啟動');
-        return;
-      }
-      relaySpawned = true;
-
-      const instPath = String(autoUpdater.installerPath || '');
-      const instName = instPath ? path.parse(instPath).name.replace(/'/g, "''") : '';
-      const exeEsc = process.execPath.replace(/'/g, "''");
-      const patchEsc = PATCH_SCRIPT_PATH.replace(/'/g, "''");
-      const psCmd = [
-        `Wait-Process -Id ${process.pid} -Timeout 120 -ErrorAction SilentlyContinue`,
-        'Start-Sleep -Seconds 2',
-        instName ? `Wait-Process -Name '${instName}' -Timeout 180 -ErrorAction SilentlyContinue` : '',
-        'Start-Sleep -Seconds 1',
-        "$env:ELECTRON_RUN_AS_NODE='1'",
-        `& '${exeEsc}' '${patchEsc}' '--launch'`
-      ]
-        .filter(Boolean)
-        .join('; ');
-
-      try {
-        const child = spawn(
-          'powershell.exe',
-          ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', psCmd],
-          {
-            detached: true,
-            stdio: 'ignore',
-            windowsHide: true,
-            cwd: process.env.SystemRoot || 'C:\\Windows'
-          }
-        );
-        if (child && typeof child.unref === 'function') {
-          child.unref();
-        }
-        writeLog(
-          `已排程更新後接力啟動 (installer=${instName || 'unknown'})，待安裝程序結束後自動補回繁中並重啟`
-        );
-      } catch (err) {
-        writeLog('[ERROR] 啟動更新接力程序失敗: ' + err.message);
-      }
-    });
   }
 
   function setupInjectionWatchdog() {
@@ -745,7 +727,7 @@
   loadDomScriptCache();
   loadDictionary();
   hookElectronMenu();
-  setupSeamlessUpdateRelay();
+  setupPostUpdatePatch();
 
   const { app } = electron;
   app.on('web-contents-created', (_event, contents) => {

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const readline = require('readline');
-const { execFileSync, execSync, spawn } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 
 function resolveInstallDir() {
   const candidates = [];
@@ -48,17 +48,11 @@ const BOOTSTRAP_LINE =
   `title:"Antigravity 繁體中文化載入異常",message:"中文化主程序掛載失敗，已退回英文原版。",` +
   `detail:String(_e&&_e.message||_e)}));}}catch(_){}}\n`;
 const ASAR_BLOCK_SIZE = 4194304;
-let lastErrorMsg = '';
 
 function appendPatchLog(msg) {
   try {
     fs.appendFileSync(LOG_FILE_PATH, `[${new Date().toISOString()}] ${msg}\n`, 'utf8');
   } catch (_) {}
-}
-
-function recordError(msg) {
-  lastErrorMsg = String(msg || '');
-  appendPatchLog('[ERROR] ' + lastErrorMsg);
 }
 
 function sha256Hex(buffer) {
@@ -514,150 +508,114 @@ function restorePatch(asarPath = DEFAULT_ASAR_PATH) {
   }
 }
 
-function buildTargetShortcutPathsScript(customTargets = null) {
-  if (Array.isArray(customTargets) && customTargets.length > 0) {
-    const arrLiteral = customTargets.map((p) => `'${p.replace(/'/g, "''")}'`).join(',');
-    return `$targets = @(${arrLiteral})`;
+function getDefaultShortcutTargets() {
+  const targets = [];
+  if (process.env.USERPROFILE) {
+    targets.push(path.join(process.env.USERPROFILE, 'Desktop', 'Antigravity.lnk'));
   }
-  return `
-    $targets = @()
-    $desktop = [Environment]::GetFolderPath('Desktop')
-    if (-not $desktop) { $desktop = Join-Path $env:USERPROFILE 'Desktop' }
-    $targets += (Join-Path $desktop 'Antigravity.lnk')
-
-    $startMenuPrograms = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs'
-    if (Test-Path $startMenuPrograms) {
-      $targets += (Join-Path $startMenuPrograms 'Antigravity.lnk')
+  for (const od of [process.env.OneDriveConsumer, process.env.OneDrive]) {
+    if (od) {
+      targets.push(path.join(od, 'Desktop', 'Antigravity.lnk'));
     }
-  `;
-}
-
-function bindShortcuts(customTargets = null) {
-  const psExePath = path.join(
-    process.env.SystemRoot || 'C:\\Windows',
-    'System32',
-    'WindowsPowerShell',
-    'v1.0',
-    'powershell.exe'
-  );
-  const patchJsPath = path.join(__dirname, 'patch-asar.js');
-  const appExeEsc = APP_EXE_PATH.replace(/'/g, "''");
-  const patchJsEsc = patchJsPath.replace(/'/g, "''");
-  const launchCmd = `$env:ELECTRON_RUN_AS_NODE='1'; & '${appExeEsc}' '${patchJsEsc}' --launch`;
-  const lnkArgs = `-NoProfile -WindowStyle Hidden -Command "${launchCmd}"`;
-
-  const psScript = `
-    ${buildTargetShortcutPathsScript(customTargets)}
-    $sh = New-Object -ComObject WScript.Shell
-    foreach ($lnkPath in $targets) {
-      $lnk = $sh.CreateShortcut($lnkPath)
-      $lnk.TargetPath = '${psExePath.replace(/'/g, "''")}'
-      $lnk.Arguments = '${lnkArgs.replace(/'/g, "''")}'
-      $lnk.WindowStyle = 7
-      $lnk.WorkingDirectory = '${INSTALL_DIR.replace(/'/g, "''")}'
-      if (Test-Path '${appExeEsc}') {
-        $lnk.IconLocation = '${appExeEsc},0'
-      }
-      $lnk.Description = 'Antigravity'
-      $lnk.Save()
-      Write-Output $lnkPath
-    }
-  `;
-
-  try {
-    const out = execFileSync(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', psScript],
-      { encoding: 'utf8', windowsHide: true }
-    ).trim();
-    console.log('已綁定捷徑：\n  ' + out.split(/\r?\n/).join('\n  '));
-    return true;
-  } catch (err) {
-    console.error('綁定捷徑失敗：', err.message);
-    return false;
   }
-}
-
-function restoreShortcuts(customTargets = null) {
-  const psScript = `
-    ${buildTargetShortcutPathsScript(customTargets)}
-    $sh = New-Object -ComObject WScript.Shell
-    foreach ($lnkPath in $targets) {
-      if (Test-Path $lnkPath) {
-        $lnk = $sh.CreateShortcut($lnkPath)
-        $lnk.TargetPath = '${APP_EXE_PATH.replace(/'/g, "''")}'
-        $lnk.Arguments = ''
-        $lnk.WindowStyle = 1
-        $lnk.WorkingDirectory = '${INSTALL_DIR.replace(/'/g, "''")}'
-        if (Test-Path '${APP_EXE_PATH.replace(/'/g, "''")}') {
-          $lnk.IconLocation = '${APP_EXE_PATH.replace(/'/g, "''")},0'
-        }
-        $lnk.Description = 'Antigravity'
-        $lnk.Save()
-        Write-Output $lnkPath
-      }
-    }
-  `;
-
-  try {
-    const out = execFileSync(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', psScript],
-      { encoding: 'utf8', windowsHide: true }
-    ).trim();
-    if (out) {
-      console.log('已將捷徑還原為官方預設：\n  ' + out.split(/\r?\n/).join('\n  '));
-    }
-    return true;
-  } catch (err) {
-    console.error('還原捷徑失敗：', err.message);
-    return false;
-  }
-}
-
-const NON_UI_WINDOW_TITLES = new Set([
-  '',
-  'n/a',
-  '不適用',
-  '暂缺',
-  '暫無',
-  'olemainthreadwndname',
-  'default ime',
-  'msctfime ui'
-]);
-
-function getAntigravityProcessState() {
-  try {
-    const out = execSync(
-      `chcp 65001 >nul & tasklist.exe /FI "IMAGENAME eq Antigravity.exe" /FI "PID ne ${process.pid}" /V /FO CSV /NH`,
-      { encoding: 'utf8', windowsHide: true }
+  if (process.env.APPDATA) {
+    targets.push(
+      path.join(
+        process.env.APPDATA,
+        'Microsoft',
+        'Windows',
+        'Start Menu',
+        'Programs',
+        'Antigravity.lnk'
+      )
     );
-    const lines = out
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.toLowerCase().startsWith('"antigravity.exe",'));
-    if (lines.length === 0) {
-      return { running: false, hasVisibleWindow: false };
-    }
-    let hasVisibleWindow = false;
-    for (const line of lines) {
-      const m = line.match(/,"([^"]*)"$/);
-      if (m) {
-        const title = m[1].trim().toLowerCase();
-        if (!NON_UI_WINDOW_TITLES.has(title)) {
-          hasVisibleWindow = true;
-          break;
+  }
+  return Array.from(new Set(targets));
+}
+
+function isPossiblyHijackedLnk(lnkPath) {
+  try {
+    if (!fs.existsSync(lnkPath)) return false;
+    const buf = fs.readFileSync(lnkPath);
+    return (
+      buf.includes('patch-asar.js') || buf.includes(Buffer.from('patch-asar.js', 'utf16le'))
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function restoreLegacyShortcuts(options = {}) {
+  const silent = Boolean(options.silent);
+  const candidates = Array.isArray(options.targets)
+    ? options.targets
+    : getDefaultShortcutTargets();
+  const matched = candidates.filter(isPossiblyHijackedLnk);
+  if (matched.length === 0) return true;
+
+  const psScript = [
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+    "$targets = $env:AGY_RESTORE_TARGETS -split '\\|'",
+    '$sh = New-Object -ComObject WScript.Shell',
+    'foreach ($lnkPath in $targets) {',
+    '  if ($lnkPath -and (Test-Path -LiteralPath $lnkPath)) {',
+    '    $lnk = $sh.CreateShortcut($lnkPath)',
+    "    if ($lnk.TargetPath -match 'powershell' -and $lnk.Arguments -match 'patch-asar\\.js') {",
+    '      $lnk.TargetPath = $env:AGY_RESTORE_EXE',
+    "      $lnk.Arguments = ''",
+    '      $lnk.WindowStyle = 1',
+    '      $lnk.WorkingDirectory = $env:AGY_RESTORE_DIR',
+    '      if (Test-Path -LiteralPath $env:AGY_RESTORE_EXE) {',
+    '        $lnk.IconLocation = "$env:AGY_RESTORE_EXE,0"',
+    '      }',
+    "      $lnk.Description = 'Antigravity'",
+    '      $lnk.Save()',
+    '      Write-Output $lnkPath',
+    '    }',
+    '  }',
+    '}'
+  ].join('\n');
+
+  try {
+    const out = execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', psScript],
+      {
+        encoding: 'utf8',
+        windowsHide: true,
+        env: {
+          ...process.env,
+          AGY_RESTORE_TARGETS: matched.join('|'),
+          AGY_RESTORE_EXE: options.exePath || APP_EXE_PATH,
+          AGY_RESTORE_DIR: options.installDir || INSTALL_DIR
         }
       }
+    ).trim();
+    if (out && !silent) {
+      console.log('已將舊版捷徑還原為官方預設：\n  ' + out.split(/\r?\n/).join('\n  '));
     }
-    return { running: true, hasVisibleWindow };
-  } catch (_) {
-    return { running: false, hasVisibleWindow: false };
+    return true;
+  } catch (err) {
+    if (!silent) {
+      console.error('還原舊版捷徑失敗：', err.message);
+    }
+    return false;
   }
 }
 
 function isAntigravityRunning() {
-  return getAntigravityProcessState().running;
+  try {
+    const out = execFileSync(
+      'tasklist.exe',
+      ['/FI', 'IMAGENAME eq Antigravity.exe', '/FI', `PID ne ${process.pid}`, '/FO', 'CSV', '/NH'],
+      { encoding: 'utf8', windowsHide: true }
+    );
+    return out
+      .split(/\r?\n/)
+      .some((l) => l.trim().toLowerCase().startsWith('"antigravity.exe",'));
+  } catch (_) {
+    return false;
+  }
 }
 
 function requestGracefulCloseAntigravity() {
@@ -680,89 +638,20 @@ function killBackgroundAntigravity() {
   } catch (_) {}
 }
 
-async function ensurePatchForLaunch(asarPath = DEFAULT_ASAR_PATH, deps = {}) {
-  lastErrorMsg = '';
-  const getProcState = deps.getProcessState || getAntigravityProcessState;
-  const killBg = deps.killBackground || killBackgroundAntigravity;
-  const sleepMs = deps.sleepMs ?? 300;
-
-  if (!fs.existsSync(asarPath)) {
-    recordError('找不到主程式封包：' + asarPath);
-    return 1;
-  }
-
-  let parsed;
-  try {
-    parsed = parseAsar(fs.readFileSync(asarPath));
-  } catch (err) {
-    recordError('解析 app.asar 失敗（官方可能變更封包格式）：' + err.message);
-    return 1;
-  }
-
-  if (parsed.isPatched && parsed.isCurrentPath) {
-    pruneOldBackups(parsed.version);
-    return 0;
-  }
-
-  const procState = getProcState();
-  if (procState.running && procState.hasVisibleWindow) {
-    appendPatchLog('偵測到未修補之可見視窗執行中，交由啟動器詢問使用者是否重啟套用');
-    return 2;
-  }
-
-  const errorRef = { message: '' };
-  if (procState.running && !procState.hasVisibleWindow) {
-    appendPatchLog('偵測到未修補之系統匣常駐程序鎖定 app.asar，正在自動終止並補齊繁中引導');
-    killBg();
-    for (let i = 0; i < 12; i++) {
-      await new Promise((r) => setTimeout(r, sleepMs));
-      if (applyPatch(asarPath, { silent: true, errorRef })) {
-        appendPatchLog(`已自動清理系統匣舊程序並掛載 v${parsed.version} 繁體中文化補丁`);
-        return 0;
-      }
-    }
-    recordError(errorRef.message || '無法解除背景 Antigravity 對 app.asar 的檔案鎖定。');
-    return 1;
-  }
-
-  if (applyPatch(asarPath, { silent: true, errorRef })) {
-    appendPatchLog(`啟動前已自動掛載 v${parsed.version} 繁體中文化補丁`);
-    return 0;
-  }
-
-  recordError(errorRef.message || '寫入繁體中文化補丁失敗。');
-  return 1;
-}
-
-function showNativeDialog(message, title = 'Antigravity 繁體中文化啟動器', mode = 'warn') {
-  try {
-    const buttons = mode === 'yesno' ? 'YesNo' : 'OK';
-    const icon = mode === 'yesno' ? 'Question' : 'Warning';
-    const psCmd =
-      'Add-Type -AssemblyName System.Windows.Forms; ' +
-      `[System.Windows.Forms.MessageBox]::Show($env:AGY_DLG_MSG, $env:AGY_DLG_TITLE, '${buttons}', '${icon}')`;
-    return execFileSync(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', psCmd],
-      {
-        encoding: 'utf8',
-        windowsHide: true,
-        env: {
-          ...process.env,
-          AGY_DLG_MSG: String(message || ''),
-          AGY_DLG_TITLE: String(title || 'Antigravity')
-        }
-      }
-    ).trim();
-  } catch (_) {
-    return 'OK';
-  }
-}
-
 function launchAppDetached(exePath = APP_EXE_PATH) {
   if (!fs.existsSync(exePath)) return false;
   const cleanEnv = { ...process.env };
-  delete cleanEnv.ELECTRON_RUN_AS_NODE;
+  for (const key of [
+    'ELECTRON_RUN_AS_NODE',
+    'AGY_OLD_PID',
+    'AGY_INST_PID',
+    'AGY_INST_NAME',
+    'AGY_APP_EXE',
+    'AGY_PATCH_JS',
+    'AGY_UPDATE_MODE'
+  ]) {
+    delete cleanEnv[key];
+  }
   const child = spawn(exePath, [], {
     detached: true,
     stdio: 'ignore',
@@ -773,51 +662,18 @@ function launchAppDetached(exePath = APP_EXE_PATH) {
   return true;
 }
 
-async function launchWithEnsure(asarPath = DEFAULT_ASAR_PATH, deps = {}) {
-  const showDlg = deps.showDialog || showNativeDialog;
-  const launchApp = deps.launchApp || launchAppDetached;
-  const restartAndApply =
-    deps.restartAndApply ||
-    ((cb) => stopAndRunWithRestart(() => applyPatch(asarPath, { silent: true }), cb));
-
-  const code = await ensurePatchForLaunch(asarPath, deps);
-  if (code === 2) {
-    const ans = showDlg(
-      '偵測到 Antigravity 已更新為英文原版且仍有視窗開啟中，無法直接寫入繁體中文。\n\n是否立即關閉現有視窗並重新啟動以套用繁體中文？',
-      'Antigravity 繁體中文化啟動器',
-      'yesno'
-    );
-    if (String(ans).toLowerCase() === 'yes') {
-      return await new Promise((resolve) => {
-        restartAndApply((ok) => resolve(ok ? 0 : 1));
-      });
-    }
-    launchApp();
-    return 2;
-  }
-
-  if (code !== 0) {
-    const detail = lastErrorMsg || '請檢查 runtime.log 或執行 Antigravity-zhTW.cmd 查看狀態。';
-    showDlg(
-      '繁體中文化掛載失敗（將先以英文原版開啟）：\n\n' + detail,
-      'Antigravity 繁體中文化啟動器',
-      'warn'
-    );
-  }
-
-  launchApp();
-  return code;
-}
-
-function stopAndRunWithRestart(actionFn, doneCallback) {
-  console.log('正在關閉執行中的 Antigravity...');
+function stopAndRunWithRestart(actionFn, doneCallback, options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) console.log('正在關閉執行中的 Antigravity...');
   requestGracefulCloseAntigravity();
 
   let attempts = 0;
   const tryAction = () => {
     attempts++;
     if (isAntigravityRunning() && attempts < 12) {
-      if (attempts >= 6) {
+      if (attempts === 3) {
+        requestGracefulCloseAntigravity();
+      } else if (attempts >= 6) {
         killBackgroundAntigravity();
       }
       return setTimeout(tryAction, 300);
@@ -828,12 +684,99 @@ function stopAndRunWithRestart(actionFn, doneCallback) {
       return setTimeout(tryAction, 300);
     }
     if (ok && fs.existsSync(APP_EXE_PATH)) {
-      console.log('正在重新啟動 Antigravity...');
+      if (!silent) console.log('正在重新啟動 Antigravity...');
       launchAppDetached();
     }
     doneCallback(ok);
   };
   setTimeout(tryAction, 300);
+}
+
+function runPostUpdate(mode = 'restart', asarPath = DEFAULT_ASAR_PATH, deps = {}) {
+  const checkRunning = deps.isRunning || isAntigravityRunning;
+  const launchApp = deps.launchApp || launchAppDetached;
+  const stopAndRestart =
+    deps.stopAndRestart ||
+    ((fn, cb) => stopAndRunWithRestart(fn, cb, { silent: true }));
+
+  if (!fs.existsSync(asarPath)) {
+    appendPatchLog('[ERROR] 更新後自動套用失敗，找不到 app.asar：' + asarPath);
+    return Promise.resolve(false);
+  }
+
+  let parsed;
+  try {
+    parsed = parseAsar(fs.readFileSync(asarPath));
+  } catch (err) {
+    appendPatchLog('[ERROR] 更新後解析 app.asar 失敗：' + err.message);
+    return Promise.resolve(false);
+  }
+
+  if (parsed.isPatched && parsed.isCurrentPath) {
+    pruneOldBackups(parsed.version);
+    return Promise.resolve(true);
+  }
+
+  if (checkRunning()) {
+    if (mode !== 'restart') {
+      appendPatchLog('略過背景自動套用：偵測到已有執行中之 Antigravity 視窗');
+      return Promise.resolve(false);
+    }
+    appendPatchLog(`偵測到新版 v${parsed.version} 視窗已開啟，正在重新套用繁體中文並重啟`);
+    return new Promise((resolve) => {
+      const errorRef = { message: '' };
+      stopAndRestart(
+        () => applyPatch(asarPath, { silent: true, errorRef }),
+        (ok) => {
+          if (ok) {
+            appendPatchLog(`已完成 v${parsed.version} 更新後繁體中文套用並重啟`);
+          } else {
+            appendPatchLog('[ERROR] ' + (errorRef.message || '更新後重啟套用繁體中文失敗'));
+          }
+          resolve(ok);
+        }
+      );
+    });
+  }
+
+  const errorRef = { message: '' };
+  const ok = applyPatch(asarPath, { silent: true, errorRef });
+  if (ok) {
+    appendPatchLog(`已於背景完成 v${parsed.version} 更新後繁體中文套用 (mode=${mode})`);
+    if (mode === 'restart') {
+      launchApp();
+    }
+  } else {
+    appendPatchLog('[ERROR] ' + (errorRef.message || '更新後背景套用繁體中文失敗'));
+  }
+  return Promise.resolve(ok);
+}
+
+function handleLegacyLaunch() {
+  restoreLegacyShortcuts({ silent: true });
+  try {
+    if (fs.existsSync(DEFAULT_ASAR_PATH) && !isAntigravityRunning()) {
+      const parsed = parseAsar(fs.readFileSync(DEFAULT_ASAR_PATH));
+      if (!parsed.isPatched || !parsed.isCurrentPath) {
+        if (applyPatch(DEFAULT_ASAR_PATH, { silent: true })) {
+          appendPatchLog(`由舊版捷徑補回 v${parsed.version} 繁體中文化並還原為官方預設捷徑`);
+        }
+      }
+    }
+  } catch (_) {}
+  return launchAppDetached();
+}
+
+function applyAndCleanShortcuts() {
+  const ok = applyPatch();
+  if (ok) restoreLegacyShortcuts();
+  return ok;
+}
+
+function restoreAndCleanShortcuts() {
+  const ok = restorePatch();
+  if (ok) restoreLegacyShortcuts();
+  return ok;
 }
 
 function closeAndPatch(actionFn, rl, callback) {
@@ -880,41 +823,9 @@ function runInteractiveMenu() {
       const choice = answer.trim();
       console.log('');
       if (choice === '1') {
-        rl.question(
-          '是否同步綁定桌面與開始功能表捷徑，讓日後更新時自動補回繁體中文？ (Y/n): ',
-          (bindAns) => {
-            const shouldBind = !bindAns.trim() || bindAns.trim().toLowerCase() === 'y';
-            closeAndPatch(
-              () => {
-                const ok = applyPatch();
-                if (ok && shouldBind) {
-                  bindShortcuts();
-                }
-                return ok;
-              },
-              rl,
-              waitAndReturn
-            );
-          }
-        );
+        closeAndPatch(applyAndCleanShortcuts, rl, waitAndReturn);
       } else if (choice === '2') {
-        rl.question(
-          '是否一併將桌面與開始功能表捷徑還原為官方預設？ (Y/n): ',
-          (unbindAns) => {
-            const shouldUnbind = !unbindAns.trim() || unbindAns.trim().toLowerCase() === 'y';
-            closeAndPatch(
-              () => {
-                const ok = restorePatch();
-                if (ok && shouldUnbind) {
-                  restoreShortcuts();
-                }
-                return ok;
-              },
-              rl,
-              waitAndReturn
-            );
-          }
-        );
+        closeAndPatch(restoreAndCleanShortcuts, rl, waitAndReturn);
       } else if (choice === '3') {
         try {
           const { runScan } = require('./scan-ui-strings.js');
@@ -944,41 +855,29 @@ function runInteractiveMenu() {
 if (require.main === module) {
   const arg = process.argv[2];
   const forceRestart = process.argv.includes('--force-restart');
-  const shouldBind = process.argv.includes('--bind-shortcut');
-  const shouldUnbind = process.argv.includes('--unbind-shortcut');
   if (arg === '--apply') {
-    const runApply = () => {
-      const ok = applyPatch();
-      if (ok && shouldBind) {
-        bindShortcuts();
-      }
-      return ok;
-    };
     if (forceRestart && isAntigravityRunning()) {
-      stopAndRunWithRestart(runApply, (ok) => process.exit(ok ? 0 : 1));
+      stopAndRunWithRestart(applyAndCleanShortcuts, (ok) => process.exit(ok ? 0 : 1));
     } else {
-      process.exit(runApply() ? 0 : 1);
+      process.exit(applyAndCleanShortcuts() ? 0 : 1);
     }
-  } else if (arg === '--launch') {
-    launchWithEnsure(DEFAULT_ASAR_PATH)
-      .then((code) => process.exit(code === 1 ? 1 : 0))
+  } else if (arg === '--post-update') {
+    const mode = process.argv[3] === 'silent' ? 'silent' : 'restart';
+    runPostUpdate(mode)
+      .then((ok) => process.exit(ok ? 0 : 1))
       .catch((err) => {
-        recordError('啟動發生未預期錯誤：' + (err && err.message ? err.message : String(err)));
-        launchAppDetached();
+        appendPatchLog(
+          '[ERROR] 更新後自動套用發生錯誤：' + (err && err.message ? err.message : String(err))
+        );
         process.exit(1);
       });
+  } else if (arg === '--launch') {
+    process.exit(handleLegacyLaunch() ? 0 : 1);
   } else if (arg === '--restore') {
-    const runRestore = () => {
-      const ok = restorePatch();
-      if (ok && shouldUnbind) {
-        restoreShortcuts();
-      }
-      return ok;
-    };
     if (forceRestart && isAntigravityRunning()) {
-      stopAndRunWithRestart(runRestore, (ok) => process.exit(ok ? 0 : 1));
+      stopAndRunWithRestart(restoreAndCleanShortcuts, (ok) => process.exit(ok ? 0 : 1));
     } else {
-      process.exit(runRestore() ? 0 : 1);
+      process.exit(restoreAndCleanShortcuts() ? 0 : 1);
     }
   } else if (arg === '--status') {
     checkStatus();
@@ -1005,10 +904,6 @@ if (require.main === module) {
         console.error('[錯誤]', err.message);
         process.exit(1);
       });
-  } else if (arg === '--bind-shortcut') {
-    process.exit(bindShortcuts() ? 0 : 1);
-  } else if (arg === '--unbind-shortcut') {
-    process.exit(restoreShortcuts() ? 0 : 1);
   } else {
     runInteractiveMenu();
   }
@@ -1021,10 +916,8 @@ module.exports = {
   buildRestoredAsarBuffer,
   computeAsarIntegrity,
   isAsarIntegrityFuseEnabled,
-  getAntigravityProcessState,
-  ensurePatchForLaunch,
-  launchWithEnsure,
-  bindShortcuts,
-  restoreShortcuts,
-  getLastError: () => lastErrorMsg
+  applyPatch,
+  restorePatch,
+  restoreLegacyShortcuts,
+  runPostUpdate
 };
