@@ -220,6 +220,12 @@
 
   const ISOLATED_ARIA_LABELS = new Set(['File Viewer', 'Virtual File Viewer']);
 
+  const CASCADE_PANE_TESTIDS = new Set([
+    'conversation-view',
+    'subagent-tab-conversation',
+    'side-question-tab-conversation'
+  ]);
+
   const TRANSLATABLE_ATTRS = ['placeholder', 'title', 'aria-label'];
 
   const textStateMap = new WeakMap();
@@ -356,6 +362,7 @@
       }
       if (
         cur.hasAttribute('data-cascade-id') &&
+        (!tid || !CASCADE_PANE_TESTIDS.has(tid)) &&
         (sawTruncateSpan || (elTag === 'A' && el.parentElement === cur))
       ) {
         return true;
@@ -385,7 +392,7 @@
   }
 
   function lookupTranslation(trimmedText) {
-    if (!trimmedText || trimmedText.length < 2 || trimmedText.length > 600) {
+    if (!trimmedText || trimmedText.length < 2 || trimmedText.length > 1200) {
       return null;
     }
 
