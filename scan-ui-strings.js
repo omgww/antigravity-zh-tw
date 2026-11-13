@@ -1191,6 +1191,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  inspectDictionary,
   runScan,
   setAutoTranslateMode,
   promptAutoTranslateMenu,

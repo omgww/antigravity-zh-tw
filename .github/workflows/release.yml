@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate scripts and dictionary
+        run: |
+          for f in patch-asar.js hook-main.js dom-translator.js scan-ui-strings.js; do
+            node --check "$f"
+          done
+          node - <<'EOF'
+          const fs = require('fs');
+          const { inspectDictionary } = require('./scan-ui-strings.js');
+
+          const cmd = fs.readFileSync('Antigravity-zhTW.cmd', 'utf8');
+          if (!cmd.includes('\r\n') || cmd.replace(/\r\n/g, '').includes('\n')) {
+            throw new Error('Antigravity-zhTW.cmd 必須維持 CRLF 換行符');
+          }
+
+          const info = inspectDictionary();
+          const meta = info.raw._meta || {};
+          if (!meta.version) throw new Error('zh-tw.json 缺少 _meta.version');
+          if (meta.auto_translate !== false) {
+            throw new Error('發佈版 zh-tw.json 的 _meta.auto_translate 必須維持 false');
+          }
+          if (meta.total_entries !== info.existingKeys.size) {
+            throw new Error(`詞條數不符: _meta=${meta.total_entries}, 實際=${info.existingKeys.size}`);
+          }
+          if (info.emptyEntries.length > 0) {
+            throw new Error(`發現空白翻譯詞條: ${info.emptyEntries.slice(0, 5).join(', ')}`);
+          }
+          if (info.duplicateConflict.length > 0) {
+            throw new Error(`發現衝突重複詞條: ${info.duplicateConflict.slice(0, 3).join('; ')}`);
+          }
+          EOF
+
+      - name: Package ZIP and generate Release Notes
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          ZIP_NAME="Antigravity-zhTW-${TAG}.zip"
+          zip -q "$ZIP_NAME" \
+            Antigravity-zhTW.cmd \
+            patch-asar.js \
+            hook-main.js \
+            dom-translator.js \
+            scan-ui-strings.js \
+            zh-tw.json \
+            LICENSE \
+            README.md
+
+          SHA256=$(sha256sum "$ZIP_NAME" | awk '{print $1}')
+          PREV_TAG=$(git describe --tags --abbrev=0 --match "v*" "${TAG}^" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log --no-merges --pretty=format:"- %s (%h)" "${PREV_TAG}..${TAG}")
+            COMPARE_LINE="完整變更對照：https://github.com/${REPO}/compare/${PREV_TAG}...${TAG}"
+          else
+            COMMITS=$(git log --no-merges --pretty=format:"- %s (%h)" "${TAG}")
+            COMPARE_LINE="完整提交紀錄：https://github.com/${REPO}/commits/${TAG}"
+          fi
+          [ -z "$COMMITS" ] && COMMITS="- 例行維護與打包更新"
+
+          cat <<EOF > release-notes.md
+          ## 更新內容
+          ${COMMITS}
+
+          ## SHA-256
+          \`\`\`text
+          ${SHA256}  ${ZIP_NAME}
+          \`\`\`
+
+          ${COMPARE_LINE}
+          EOF
+
+          echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" "$ZIP_NAME" \
+            --title "$TAG" \
+            --notes-file release-notes.md
