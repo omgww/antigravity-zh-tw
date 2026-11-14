@@ -1,6 +1,6 @@
 # Antigravity 繁體中文語系包
 
-將 Antigravity 介面轉為繁體中文（Windows 10 / 11），支援 <kbd>Alt</kbd> + <kbd>Z</kbd> 即時切換中英文原文。
+將 Google Antigravity 介面轉為繁體中文（Windows 10 / 11），支援 <kbd>Alt</kbd> + <kbd>Z</kbd> 即時切換中英文原文。
 
 | 特性 | 機制說明 |
 | --- | --- |
