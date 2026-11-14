@@ -1,11 +1,11 @@
 {
   "_meta": {
     "name": "Antigravity 繁體中文語系包",
-    "version": "2.31.2",
+    "version": "2.32.1",
     "auto_translate": false,
     "shortcut": "Alt+Z 切換中/英原文",
     "description": "直接用文字編輯器新增或修改下方的英中對照詞條，儲存後已開啟的視窗會自動更新。",
-    "total_entries": 2040
+    "total_entries": 2085
   },
   "menu": {
     "File": "檔案",
@@ -494,7 +494,8 @@
     "Include unstaged changes": "包含未暫存的變更",
     "Disable Word Wrap (Alt+Z)": "停用自動換行 (Alt+Z)",
     "Enable Word Wrap (Alt+Z)": "啟用自動換行 (Alt+Z)",
-    "Toggle Word Wrap (Alt+Z)": "切換自動換行 (Alt+Z)"
+    "Toggle Word Wrap (Alt+Z)": "切換自動換行 (Alt+Z)",
+    "Toggle Word Wrap": "切換自動換行"
   },
   "settings": {
     "General": "一般",
@@ -1096,10 +1097,15 @@
     "Font Size": "字體大小",
     "Get started with Remote Control": "開始使用遠端控制",
     "Remote Control Instances": "遠端控制執行個體",
-    "Project Settings": "專案設定"
+    "Project Settings": "專案設定",
+    "Enter always submits. This adds a second shortcut.": "按 Enter 鍵一律會送出訊息；設定此項可新增第二組快捷鍵。",
+    "Pin / Unpin Conversation": "釘選 / 取消釘選對話",
+    "Environment Setup Script": "環境設定腳本",
+    "A bash script run in your cloud environment after cloning repositories (or configure interactively in chat with /env-setup).": "複製儲存庫後於雲端環境中執行的 Bash 腳本（亦可在對話中輸入 /env-setup 進行互動式設定）。"
   },
   "common": {
     "Reflect on recent successes or corrections to capture reusable skills or rules.": "總結近期的成功或修正經驗，將其沉澱為可重複使用的技能或規則。",
+    "Build, package, and debug MCP Apps for Antigravity: MCP server tools whose results render as interactive UI in the conversation, in the side pane, or full-page from the sidebar. Use when adding a UI to an MCP tool, building or theming the app itself, packaging it as a plugin, or debugging an app that doesn't render or behave as expected.": "為 Antigravity 建置、封裝與除錯 MCP Apps：此類 MCP 伺服器工具的結果可在對話內、側邊面板或側邊欄全頁面以互動式介面呈現。適用於為 MCP 工具加入介面、建置或調整應用佈景主題、封裝為外掛，或針對顯示與運作異常的應用進行除錯時。",
     "Invoke the Boost multi-agent orchestrator for complex tasks.": "呼叫 Boost 多代理協調器以處理高複雜度任務。",
     "Comprehensive guide and reference for the Antigravity Customization System. Use to explain how customizations work, their loading priority, discovery mechanisms, and to guide the creation of skills, rules, plugins, hooks, and MCP servers.": "Antigravity 自訂與擴充系統完整指南與參考手冊。說明自訂機制運作原理、載入優先權、探索機制，並指引建立技能、規則、外掛、掛鉤與 MCP 伺服器。",
     "Provides a comprehensive guide, quick reference, and sitemap for Google Antigravity (AGY), including the Antigravity CLI (agy), Antigravity 2.0, Antigravity IDE, Python SDK, slash commands, keybindings, and customizations (skills, rules, MCP, sidecars). Activate this skill when the user asks questions about how to use, configure, or customize Antigravity, AGY, the agy CLI, the Antigravity IDE, or Antigravity 2.0.": "提供 Google Antigravity (AGY) 完整指南、速查表與導覽地圖，涵蓋 CLI、Antigravity 2.0、Python SDK、斜線指令、快捷鍵與自訂擴充。",
@@ -2033,7 +2039,46 @@
     "Next Page": "下一頁",
     "Zoom Level": "縮放比例",
     "More toolbar actions": "更多工具列動作",
-    "More": "更多"
+    "More": "更多",
+    "Resume 1 comment draft": "繼續編輯 1 則評論草稿",
+    "Resume comment draft": "繼續編輯評論草稿",
+    "Discard comment draft": "捨棄評論草稿",
+    "SSH host": "SSH 主機",
+    "SSH Host": "SSH 主機",
+    "Connect to SSH Host…": "連線至 SSH 主機…",
+    "Connecting…": "正在連線…",
+    "SSH Config": "SSH 組態",
+    "SSH config:": "SSH 組態檔：",
+    "Hidden hosts": "隱藏的主機",
+    "Loading hosts…": "正在載入主機…",
+    "Loading Hosts…": "正在載入主機…",
+    "Couldn't load your SSH hosts. You can still type one.": "無法載入您的 SSH 主機，但您仍可直接手動輸入。",
+    "Couldn't load your SSH hosts": "無法載入您的 SSH 主機",
+    "Choose File…": "選擇檔案…",
+    "Use Default": "使用預設值",
+    "Open ↗": "開啟 ↗",
+    "Settings ↗": "設定 ↗",
+    "Enable macOS Permissions": "啟用 macOS 權限",
+    "Relaunch ↻": "重新啟動 ↻",
+    "Continue Task →": "繼續任務 →",
+    "MCP error": "MCP 錯誤",
+    "View MCP servers": "檢視 MCP 伺服器",
+    "MCP server error": "MCP 伺服器錯誤",
+    "Couldn't search files": "無法搜尋檔案",
+    "Icon": "圖示",
+    "Color": "顏色",
+    "Open on another device": "在其他裝置上開啟",
+    "Pick up this remote conversation on your phone or in any browser. Scan the QR code or open the link below.": "在手機或任意瀏覽器上接續進行此遠端對話。請掃描 QR Code 或開啟下方連結。",
+    "Main Agent": "主代理",
+    "Layout": "版面配置",
+    "Resume this agent where it paused": "從暫停處繼續執行此代理",
+    "Resume": "繼續",
+    "Stop this agent": "停止此代理",
+    "Filter agents": "篩選代理",
+    "All agents": "所有代理",
+    "Stop all agents": "停止所有代理",
+    "No agent is working right now.": "目前沒有正在執行的代理。",
+    "Waiting for the agents’ windows…": "正在等待代理視窗…"
   },
   "auto": {
     "Turn on a flag you don't have": "開啟尚未擁有的功能旗標",
