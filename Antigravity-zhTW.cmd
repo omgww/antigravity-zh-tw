@@ -1,16 +1,17 @@
 @echo off
+setlocal
 chcp 65001 >nul
 title Antigravity zh-TW Patch Manager
 cd /d "%~dp0"
 
 where node >nul 2>&1
-if not errorlevel 1 (
-    node "%~dp0patch-asar.js" %*
-    set "EXIT_CODE=%ERRORLEVEL%"
-    if "%~1"=="" pause
-    exit /b %EXIT_CODE%
-)
+if errorlevel 1 goto NO_NODE
+node "%~dp0patch-asar.js" %*
+set "EXIT_CODE=%ERRORLEVEL%"
+if "%~1"=="" pause
+exit /b %EXIT_CODE%
 
+:NO_NODE
 set "APP_EXE=%LOCALAPPDATA%\Programs\antigravity\Antigravity.exe"
 if not exist "%APP_EXE%" set "APP_EXE=%ProgramFiles%\Antigravity\Antigravity.exe"
 if not exist "%APP_EXE%" (
@@ -20,16 +21,19 @@ if not exist "%APP_EXE%" (
 )
 
 set "PATCH_JS=%~dp0patch-asar.js"
-if not "%~1"=="" (
-    set ELECTRON_RUN_AS_NODE=1
-    powershell -NoProfile -Command "& $env:APP_EXE $env:PATCH_JS @args | Out-Host; exit $LASTEXITCODE" -- %*
-    exit /b %ERRORLEVEL%
-)
+set ELECTRON_RUN_AS_NODE=1
+if "%~1"=="" goto FALLBACK_MENU
+
+set "AGY_A1=%~1"
+set "AGY_A2=%~2"
+set "AGY_A3=%~3"
+set "AGY_A4=%~4"
+powershell -NoProfile -Command "$a = @(@($env:AGY_A1,$env:AGY_A2,$env:AGY_A3,$env:AGY_A4) | Where-Object { $_ }); & $env:APP_EXE $env:PATCH_JS @a 2>&1 | ForEach-Object { $_.ToString() }; exit $LASTEXITCODE"
+exit /b %ERRORLEVEL%
 
 :FALLBACK_MENU
 echo.
-set ELECTRON_RUN_AS_NODE=1
-"%APP_EXE%" "%PATCH_JS%" --menu-prompt | find /v ""
+"%APP_EXE%" "%PATCH_JS%" --menu-prompt 2>&1 | find /v ""
 echo.
 set "CHOICE="
 set /p CHOICE="Select option (0-4): "
@@ -51,7 +55,7 @@ call :WAIT_ENTER
 goto FALLBACK_MENU
 
 :MENU_3
-"%APP_EXE%" "%PATCH_JS%" --scan | find /v ""
+"%APP_EXE%" "%PATCH_JS%" --scan 2>&1 | find /v ""
 call :WAIT_ENTER
 goto FALLBACK_MENU
 
@@ -62,8 +66,8 @@ echo   [0] Disable Auto-Translate
 echo.
 set "AT_MODE="
 set /p AT_MODE="Select mode (0-2, Enter to cancel): "
-if "%AT_MODE%"=="0" "%APP_EXE%" "%PATCH_JS%" --set-auto-translate off | find /v ""
-if "%AT_MODE%"=="1" "%APP_EXE%" "%PATCH_JS%" --set-auto-translate mymemory | find /v ""
+if "%AT_MODE%"=="0" "%APP_EXE%" "%PATCH_JS%" --set-auto-translate off 2>&1 | find /v ""
+if "%AT_MODE%"=="1" "%APP_EXE%" "%PATCH_JS%" --set-auto-translate mymemory 2>&1 | find /v ""
 if "%AT_MODE%"=="2" goto MENU_4_GEMINI
 call :WAIT_ENTER
 goto FALLBACK_MENU
@@ -71,7 +75,7 @@ goto FALLBACK_MENU
 :MENU_4_GEMINI
 set "AT_KEY="
 set /p AT_KEY="Paste Gemini API Key (or press Enter to reuse existing key): "
-"%APP_EXE%" "%PATCH_JS%" --set-auto-translate gemini "%AT_KEY%" | find /v ""
+"%APP_EXE%" "%PATCH_JS%" --set-auto-translate gemini "%AT_KEY%" 2>&1 | find /v ""
 call :WAIT_ENTER
 goto FALLBACK_MENU
 
@@ -90,9 +94,9 @@ if /I "%CONFIRM%"=="n" (
     echo Cancelled. Please close Antigravity first.
     exit /b 0
 )
-"%APP_EXE%" "%PATCH_JS%" %* --force-restart | find /v ""
+"%APP_EXE%" "%PATCH_JS%" %* --force-restart 2>&1 | find /v ""
 exit /b 0
 
 :RUN_PATCH_DIRECT
-"%APP_EXE%" "%PATCH_JS%" %* | find /v ""
+"%APP_EXE%" "%PATCH_JS%" %* 2>&1 | find /v ""
 exit /b 0

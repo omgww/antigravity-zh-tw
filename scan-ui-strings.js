@@ -436,13 +436,14 @@ function resolveTranslationProvider(mode) {
 
 async function translateMissingStrings(missingItems, mode = 'mymemory') {
   const results = Object.create(null);
+  let hadError = false;
   if (!Array.isArray(missingItems) || missingItems.length === 0) {
-    return results;
+    return { results, hadError };
   }
 
   const provider = resolveTranslationProvider(mode);
   if (provider.type === 'none') {
-    return results;
+    return { results, hadError: true };
   }
   if (provider.type === 'gemini') {
     const batchSize = 40;
@@ -456,10 +457,11 @@ async function translateMissingStrings(missingItems, mode = 'mymemory') {
           }
         }
       } catch (err) {
+        hadError = true;
         console.error(`[警告] Gemini 批次翻譯失敗 (${i + 1}-${i + chunk.length}):`, err.message);
       }
     }
-    return results;
+    return { results, hadError };
   }
 
   for (const item of missingItems) {
@@ -469,10 +471,11 @@ async function translateMissingStrings(missingItems, mode = 'mymemory') {
         results[item] = zh;
       }
     } catch (err) {
+      hadError = true;
       if (err.message.includes('上限')) break;
     }
   }
-  return results;
+  return { results, hadError };
 }
 
 function writeDictAtomicSync(targetPath, dataObj) {
@@ -1084,6 +1087,7 @@ async function runScan(options = {}) {
   ];
 
   let autoTranslatedCount = 0;
+  let autoTranslateCompleted = false;
   if (allMissingStrings.length > 0 && activeMode) {
     const provider = resolveTranslationProvider(activeMode);
     if (provider.type === 'none') {
@@ -1092,7 +1096,11 @@ async function runScan(options = {}) {
       console.log(
         `\n正在透過 ${provider.label} 自動翻譯 ${allMissingStrings.length} 筆新增英文詞條並寫入 "auto" 分區...`
       );
-      const translatedMap = await translateMissingStrings(allMissingStrings, activeMode);
+      const { results: translatedMap, hadError } = await translateMissingStrings(
+        allMissingStrings,
+        activeMode
+      );
+      autoTranslateCompleted = !hadError;
       dictInfo.raw.auto = dictInfo.raw.auto || {};
       for (const [en, zh] of Object.entries(translatedMap)) {
         dictInfo.raw.auto[en] = zh;
@@ -1149,7 +1157,7 @@ async function runScan(options = {}) {
     let fileChanged = autoTranslatedCount > 0;
     if (
       !anchorBroken &&
-      remainingMissing === 0 &&
+      (remainingMissing === 0 || autoTranslateCompleted) &&
       asarInfo.version !== 'unknown' &&
       dictInfo.raw._meta.version !== asarInfo.version
     ) {
