@@ -631,7 +631,7 @@ async function runScan(options = {}) {
     'Extension (Cider)', 'Extension (VS Code)', 'Extension (Antigravity IDE)', 'Extension (Visual Studio)', 'Extension (Eclipse)',
     'Google (internal)', 'All tools (*)', 'run_command or view_file', 'Browser tools (browser_.*)',
     'Best of N', 'File Explorer', 'Finder', 'Chrome', 'Safari', 'Firefox', 'Edge',
-    'File Viewer', 'Virtual File Viewer', 'Command Shift A',
+    'File Viewer', 'Virtual File Viewer', 'Command Shift A', 'Enter', 'Cmd+Enter', 'Ctrl+Enter',
     'VS Code', 'Visual Studio', 'Eclipse', 'Gemini', 'Claude', 'GPT',
     'MCP', 'WSL', 'SSH', 'HTTP', 'HTTPS', 'JSON', 'YAML', 'CSV', 'PDF', 'HTML', 'CSS', 'SVG',
     'PNG', 'JPG', 'GIF', 'MP3', 'MP4', 'UTF-8', 'ASCII', 'OAuth', 'SSO', 'SAML',

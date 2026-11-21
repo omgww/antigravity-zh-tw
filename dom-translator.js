@@ -88,6 +88,62 @@
     {
       regex: /^See all \((\d+)\)$/i,
       render: (m) => `查看全部 (${m[1]})`
+    },
+    {
+      regex: /^(\d+)\s+agents?\s+working,\s*live preview unavailable$/i,
+      render: (m) => `${m[1]} 個代理執行中，無法顯示即時預覽`
+    },
+    {
+      regex: /^(\d+)\s+models selected$/i,
+      render: (m) => `已選擇 ${m[1]} 個模型`
+    },
+    {
+      regex: /^Reset\s+(\d+)\s+overrides?$/i,
+      render: (m) => `重設 ${m[1]} 項覆寫設定`
+    },
+    {
+      regex: /^Yes, allow downloads from (.+) for this run$/i,
+      render: (m) => `是，於此次執行允許從 ${m[1]} 下載`
+    },
+    {
+      regex: /^Yes, allow downloads from (.+) in this conversation$/i,
+      render: (m) => `是，在此對話中允許從 ${m[1]} 下載`
+    },
+    {
+      regex: /^Yes, always allow downloads from (.+)$/i,
+      render: (m) => `是，總是允許從 ${m[1]} 下載`
+    },
+    {
+      regex: /^Yes, save rule for '(.+)' in this conversation$/i,
+      render: (m) => `是，在此對話中儲存「${m[1]}」的規則`
+    },
+    {
+      regex: /^Yes, save rule for '(.+)' globally$/i,
+      render: (m) => `是，將「${m[1]}」儲存為全域規則`
+    },
+    {
+      regex: /^Yes, and always allow '(.+)' in this conversation$/i,
+      render: (m) => `是，並在此對話中總是允許「${m[1]}」`
+    },
+    {
+      regex: /^Yes, and always allow '(.+)'$/i,
+      render: (m) => `是，並總是允許「${m[1]}」`
+    },
+    {
+      regex: /^Yes, allow (.+) in this conversation$/i,
+      render: (m) => `是，在此對話中允許 ${m[1]}`
+    },
+    {
+      regex: /^Yes, always allow (.+)$/i,
+      render: (m) => `是，總是允許 ${m[1]}`
+    },
+    {
+      regex: /^Conflicts with your configured Ask permission:\s*(.+)$/i,
+      render: (m) => `與您設定的「詢問」權限規則衝突：${m[1]}`
+    },
+    {
+      regex: /^Requires manual confirmation:\s*(.+)$/i,
+      render: (m) => `需要人工確認：${m[1]}`
     }
   ];
 
