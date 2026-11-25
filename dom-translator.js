@@ -144,6 +144,63 @@
     {
       regex: /^Requires manual confirmation:\s*(.+)$/i,
       render: (m) => `需要人工確認：${m[1]}`
+    },
+    {
+      regex: /^Revoke all:\s*(.+)$/i,
+      render: (m) => `全部撤銷：${m[1]}`
+    },
+    {
+      regex: /^Open Subagent:\s*(.+)$/i,
+      render: (m) => `開啟子代理：${m[1]}`
+    },
+    {
+      regex: /^No matching languages for "([^"]+)"$/i,
+      render: (m) => `找不到符合「${m[1]}」的語言`
+    },
+    {
+      regex: /^Move to Group:\s*(.+)$/i,
+      render: (m) => `移至群組：${m[1]}`
+    },
+    {
+      regex: /^New (Worktree|Workspace|Project|Group)(?:\.\.\.|…)$/i,
+      render: (m) => {
+        const map = { worktree: '工作樹 (Worktree)', workspace: '工作區', project: '專案', group: '群組' };
+        return `新增${map[m[1].toLowerCase()] || m[1]}...`;
+      }
+    },
+    {
+      regex: /^Remove from (Worktree|Workspace|Project|Group)$/i,
+      render: (m) => {
+        const map = { worktree: '工作樹', workspace: '工作區', project: '專案', group: '群組' };
+        return `從${map[m[1].toLowerCase()] || m[1]}移除`;
+      }
+    },
+    {
+      regex: /^Move to (Worktree|Workspace|Project|Group)$/i,
+      render: (m) => {
+        const map = { worktree: '工作樹', workspace: '工作區', project: '專案', group: '群組' };
+        return `移至${map[m[1].toLowerCase()] || m[1]}`;
+      }
+    },
+    {
+      regex: /^Build with (.+) Plugins$/i,
+      render: (m) => `Build with ${m[1]} 外掛`
+    },
+    {
+      regex: /^Manage (.+) app settings\.$/i,
+      render: (m) => `管理 ${m[1]} 應用程式設定。`
+    },
+    {
+      regex: /^When toggled on, (.+?) collects usage data to help Google enhance performance and features\.$/i,
+      render: (m) => `開啟後，${m[1]} 會收集使用資料，協助 Google 改進效能與功能。`
+    },
+    {
+      regex: /^Receive product updates, tips, and promotions from Google (.+?) via email\.$/i,
+      render: (m) => `透過電子郵件接收 Google ${m[1]} 的產品更新、使用秘訣與優惠資訊。`
+    },
+    {
+      regex: /^When toggled on, (.+?) will use your AI credits to fulfill model requests once you're out of model quota\. (.+?) will always use your model quota first before using AI credits\.$/i,
+      render: (m) => `開啟後，當您的模型配額用盡時，${m[1]} 將使用您的 AI 額度來處理模型請求。${m[2]} 會優先使用您的模型配額，之後才會扣除 AI 額度。`
     }
   ];
 
