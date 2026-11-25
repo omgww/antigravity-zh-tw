@@ -4,7 +4,16 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const https = require('https');
-const { isCoveredByDictOrDynamic } = require('./dom-translator.js');
+const {
+  DYNAMIC_RULES,
+  ISOLATED_DATA_ATTRS,
+  ISOLATED_TESTIDS,
+  ISOLATED_ARIA_LABELS,
+  CASCADE_PANE_TESTIDS,
+  isCoveredByDictOrDynamic,
+  replaceTopLevelInterpolations,
+  isTemplateCoveredByDynamic
+} = require('./dom-translator.js');
 
 const DICT_PATH = path.join(__dirname, 'zh-tw.json');
 const API_KEY_PATH = path.join(__dirname, '.api-key');
@@ -483,7 +492,18 @@ function writeDictAtomicSync(targetPath, dataObj) {
   const content = JSON.stringify(dataObj, null, 2) + '\n';
   try {
     fs.writeFileSync(tmpPath, content, 'utf8');
-    fs.renameSync(tmpPath, targetPath);
+    try {
+      fs.renameSync(tmpPath, targetPath);
+    } catch (renameErr) {
+      if (renameErr && (renameErr.code === 'EPERM' || renameErr.code === 'EBUSY')) {
+        fs.copyFileSync(tmpPath, targetPath);
+        try {
+          if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+        } catch (_) {}
+        return;
+      }
+      throw renameErr;
+    }
   } catch (err) {
     try {
       if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
@@ -589,6 +609,7 @@ function promptAutoTranslateMenu(rl) {
 
 async function runScan(options = {}) {
   const syncMeta = Boolean(options.sync || options.autoTranslate);
+  const showDynamic = Boolean(options.showDynamic);
   const dictInfo = inspectDictionary();
   const { existingKeys, totalEntries, duplicateSame, duplicateConflict, emptyEntries } = dictInfo;
   const metaMode = normalizeAutoTranslateMode(dictInfo.raw?._meta?.auto_translate);
@@ -632,10 +653,15 @@ async function runScan(options = {}) {
     'Google (internal)', 'All tools (*)', 'run_command or view_file', 'Browser tools (browser_.*)',
     'Best of N', 'File Explorer', 'Finder', 'Chrome', 'Safari', 'Firefox', 'Edge',
     'File Viewer', 'Virtual File Viewer', 'Command Shift A', 'Enter', 'Cmd+Enter', 'Ctrl+Enter',
-    'VS Code', 'Visual Studio', 'Eclipse', 'Gemini', 'Claude', 'GPT',
+    'VS Code', 'Visual Studio', 'Eclipse', 'Gemini', 'Claude', 'GPT', 'Flash Lite', 'Flash', 'Pro',
     'MCP', 'WSL', 'SSH', 'HTTP', 'HTTPS', 'JSON', 'YAML', 'CSV', 'PDF', 'HTML', 'CSS', 'SVG',
     'PNG', 'JPG', 'GIF', 'MP3', 'MP4', 'UTF-8', 'ASCII', 'OAuth', 'SSO', 'SAML',
     'API', 'CLI', 'IDE', 'SDK', 'URL', 'URI', 'DOM', 'SQL', 'Git', 'CEL', 'WIF'
+  ]);
+
+  const ICON_PICKER_LABEL_SKIP = new Set([
+    'Robot', 'Tree', 'Hub', 'Sliders', 'Terminal window', 'Command prompt', 'Code',
+    'Sparkles', 'Wrench', 'Shield', 'Speedometer', 'Gauge', 'Eye', 'Flask', 'Radar', 'Bot'
   ]);
 
   const SINGLE_WORD_COLLISION_SKIP = new Set([
@@ -821,9 +847,9 @@ async function runScan(options = {}) {
   }
 
   const placeholderRegex =
-    /\bplaceholder:\s*(?:[A-Za-z0-9_$]+\s*=\s*)?"((?:[A-Z]|\([A-Za-z])[^"\\\n]{3,160})"/g;
+    /\b(?:placeholder|searchPlaceholder):\s*(?:[A-Za-z0-9_$]+\s*=\s*)?"((?:[A-Z]|\([A-Za-z]|e\.g\.[\s,])[^"\\\n]{3,160})"/g;
   const placeholderTernRegex =
-    /\bplaceholder:\s*[^{};"']{1,80}\?\s*"((?:[^"\\\n]|\\.)*)"\s*:\s*"((?:[^"\\\n]|\\.)*)"/g;
+    /\b(?:placeholder|searchPlaceholder):\s*[^{};"']{1,80}\?\s*"((?:[^"\\\n]|\\.)*)"\s*:\s*"((?:[^"\\\n]|\\.)*)"/g;
   const allPlaceholders = [];
   const untranslatedPlaceholders = [];
   const seenPlaceholders = new Set();
@@ -833,13 +859,14 @@ async function runScan(options = {}) {
       ph &&
       ph.length >= 3 &&
       ph.length <= 160 &&
-      /^(?:[A-Z]|\([A-Za-z])/.test(ph) &&
+      /^(?:[A-Z]|\([A-Za-z]|e\.g\.[\s,])/.test(ph) &&
       !seenPlaceholders.has(ph) &&
       !SKIP_TECH_SETTINGS.has(ph) &&
       /[a-z]{2,}/.test(ph) &&
       !/^(?:https?|file):\/\//i.test(ph) &&
       !ph.includes('{') &&
-      !/^\/[a-z0-9_.-]+\//i.test(ph)
+      !/^\/[a-z0-9_.-]+\//i.test(ph) &&
+      !/^e\.g\.,?\s+(?:[a-z0-9_.-]+\/|https?:)/i.test(ph)
     ) {
       seenPlaceholders.add(ph);
       allPlaceholders.push(ph);
@@ -899,10 +926,49 @@ async function runScan(options = {}) {
   };
 
   const reactPropRe =
-    /(?:"aria-label"|\b(?:title|label|description|subtitle|sectionTitle|emptyText|confirmLabel|cancelLabel|tooltip|headerTitle|buttonText|actionLabel|statusText|placeholder)):\s*"((?:[^"\\\n]|\\.)*)"/g;
+    /(?:"aria-label"|\b(?:title|label|description|subtitle|sectionTitle|emptyText|emptyMessage|emptyLabel|confirmLabel|cancelLabel|submitLabel|tooltip|tooltipText|headerTitle|buttonText|actionLabel|actionPrefix|statusText|placeholder|searchPlaceholder|content)):\s*"((?:[^"\\\n]|\\.)*)"/g;
   const reactPropTernaryRe =
-    /(?:"aria-label"|\b(?:title|label|description|subtitle|sectionTitle|emptyText|confirmLabel|cancelLabel|tooltip|headerTitle|buttonText|actionLabel|statusText|placeholder)):\s*[^{},;?"']{1,120}\?\s*"((?:[^"\\\n]|\\.)*)"\s*:\s*"((?:[^"\\\n]|\\.)*)"/g;
+    /(?:"aria-label"|\b(?:title|label|description|subtitle|sectionTitle|emptyText|emptyMessage|emptyLabel|confirmLabel|cancelLabel|submitLabel|tooltip|tooltipText|headerTitle|buttonText|actionLabel|actionPrefix|statusText|placeholder|searchPlaceholder|content)):\s*[^{},;?"']{1,120}\?\s*"((?:[^"\\\n]|\\.)*)"\s*:\s*"((?:[^"\\\n]|\\.)*)"/g;
   const reactTernaryStrRe = /[?:]\s*"((?:[^"\\\n]|\\.)*)"/g;
+
+  const reactVisibleTplPropRe =
+    /\b(?:content|description|subtitle|emptyText|emptyMessage|emptyLabel|tooltipText|headerTitle|statusText):\s*`([^`\n]{4,220})`/g;
+  const reactAuxTplPropRe =
+    /(?:"aria-label"|\b(?:title|label|placeholder|searchPlaceholder|tooltip|actionLabel)):\s*`([^`\n]{4,220})`/g;
+
+  const normalizeTemplatePattern = (raw) =>
+    replaceTopLevelInterpolations(decodeJsEscapesRaw(raw).trim(), '${...}');
+
+  const isUsefulDynamicTemplate = (rawDecoded) => {
+    if (!rawDecoded || !rawDecoded.includes('${')) return false;
+    const norm = normalizeTemplatePattern(rawDecoded);
+    const staticOnly = norm.replace(/\$\{\.\.\.\}/g, '').trim();
+    const letters = staticOnly.replace(/[^A-Za-z]/g, '');
+    if (letters.length < 4 || !/[A-Za-z]{3,}/.test(staticOnly)) return false;
+    if (
+      /(?:https?:\/\/|file:\/\/|text-|bg-|flex|px-|py-|gap-|grid-|rounded-|border-|cursor-|overflow-|hover:|focus:|data-|aria-|in_mdb\(|matches_principal\(|!is_)/i.test(
+        norm
+      )
+    ) {
+      return false;
+    }
+    if (/^(?:SSH:|#|\$\{\.\.\.\}\s*(?:px|rem|ms|%|x)$)/i.test(norm)) return false;
+    if (/^[a-z0-9_.:/-]+$/i.test(staticOnly)) return false;
+    return true;
+  };
+
+  const uncoveredDynamicVisible = new Map();
+  const uncoveredDynamicAux = new Map();
+  const recordDynamicTemplate = (rawTpl, isVisible) => {
+    const decoded = decodeJsEscapesRaw(rawTpl).trim();
+    if (!isUsefulDynamicTemplate(decoded)) return;
+    if (isTemplateCoveredByDynamic(decoded)) return;
+    const norm = normalizeTemplatePattern(decoded);
+    const targetMap = isVisible ? uncoveredDynamicVisible : uncoveredDynamicAux;
+    if (isVisible) uncoveredDynamicAux.delete(norm);
+    else if (uncoveredDynamicVisible.has(norm)) return;
+    targetMap.set(norm, (targetMap.get(norm) || 0) + 1);
+  };
 
   let ceSearchPos = 0;
   while (true) {
@@ -1014,13 +1080,28 @@ async function runScan(options = {}) {
           addReactCandidate(decodeJsEscapesRaw(pm[2]), false);
         }
       }
+      if (propsWithoutNestedCe.includes('`')) {
+        reactVisibleTplPropRe.lastIndex = 0;
+        while ((pm = reactVisibleTplPropRe.exec(propsWithoutNestedCe)) !== null) {
+          recordDynamicTemplate(pm[1], true);
+        }
+        reactAuxTplPropRe.lastIndex = 0;
+        while ((pm = reactAuxTplPropRe.exec(propsWithoutNestedCe)) !== null) {
+          recordDynamicTemplate(pm[1], false);
+        }
+      }
     }
 
     if (isValuelessOption || topArgs.length < 3) continue;
 
     for (let ai = 2; ai < topArgs.length; ai++) {
       const childArg = topArgs[ai];
-      if (!childArg || !childArg.includes('"')) continue;
+      if (!childArg) continue;
+      if (childArg[0] === '`' && childArg[childArg.length - 1] === '`' && childArg.includes('${')) {
+        recordDynamicTemplate(childArg.slice(1, -1), true);
+        continue;
+      }
+      if (!childArg.includes('"')) continue;
       const prevIsSpace = ai > 2 && /^"\s+"$/.test(topArgs[ai - 1]);
       const nextIsSpace = ai + 1 < topArgs.length && /^"\s+"$/.test(topArgs[ai + 1]);
       if (prevIsSpace || nextIsSpace) continue;
@@ -1043,7 +1124,90 @@ async function runScan(options = {}) {
     }
   }
 
+  const uiConfigOptionRe =
+    /\{(?:id|value):(?:"[^"]{1,50}"|\d+),\s*label:\s*(?:"((?:[^"\\\n]|\\.)*)"|[^{};"']{1,60}\?\s*"((?:[^"\\\n]|\\.)*)"\s*:\s*"((?:[^"\\\n]|\\.)*)")/g;
+  while ((m = uiConfigOptionRe.exec(mainJs)) !== null) {
+    for (const rawOpt of [m[1], m[2], m[3]]) {
+      if (!rawOpt) continue;
+      const decoded = decodeJsEscapesRaw(rawOpt).trim();
+      if (!ICON_PICKER_LABEL_SKIP.has(decoded)) {
+        addReactCandidate(decoded, false);
+      }
+    }
+  }
+  const uiConfigMetaPropRe = /\b(?:emptyLabel|tooltipText):\s*"((?:[^"\\\n]|\\.)*)"/g;
+  while ((m = uiConfigMetaPropRe.exec(mainJs)) !== null) {
+    addReactCandidate(decodeJsEscapesRaw(m[1]), false);
+  }
+
   const untranslatedReactUi = allReactUi.filter((s) => !hasTranslationOrBase(s));
+
+  const missingIsolationAnchors = [];
+  const checkAnchorList = (kind, list) => {
+    for (const item of list) {
+      if (!mainJs.includes(item)) {
+        missingIsolationAnchors.push(`${kind}:${item}`);
+      }
+    }
+  };
+  checkAnchorList('testid', ISOLATED_TESTIDS);
+  checkAnchorList('cascade-testid', CASCADE_PANE_TESTIDS);
+  checkAnchorList('aria-label', ISOLATED_ARIA_LABELS);
+  checkAnchorList('data-attr', ISOLATED_DATA_ATTRS);
+  const totalIsolationAnchors =
+    ISOLATED_TESTIDS.size +
+    CASCADE_PANE_TESTIDS.size +
+    ISOLATED_ARIA_LABELS.size +
+    ISOLATED_DATA_ATTRS.length;
+
+  const NEGATIVE_DYNAMIC_PROBES = [
+    'README.md',
+    'src/index.ts',
+    'C:\\Users\\demo\\project',
+    'feature/login-fix',
+    'https://example.com/docs',
+    'v2.35.1',
+    'main',
+    'Gemini 2.5 Pro',
+    'Error',
+    'Plan'
+  ];
+  const overreachingRules = [];
+  for (let i = 0; i < DYNAMIC_RULES.length; i++) {
+    const rule = DYNAMIC_RULES[i];
+    for (const probe of NEGATIVE_DYNAMIC_PROBES) {
+      if (rule.regex.test(probe)) {
+        overreachingRules.push(`${rule.regex} 誤匹配 "${probe}"`);
+        break;
+      }
+    }
+  }
+
+  const ALLOWED_CASE_SPLIT_KEYS = new Set(['queued messages', 'recent files']);
+  const caseVariantBuckets = new Map();
+  const autoSingleWords = [];
+  for (const [secKey, secVal] of Object.entries(dictInfo.raw || {})) {
+    if (secKey.startsWith('_') || !secVal || typeof secVal !== 'object') continue;
+    for (const [en, zh] of Object.entries(secVal)) {
+      if (typeof zh !== 'string' || !zh.trim()) continue;
+      const k = en.trim();
+      const v = zh.trim();
+      if (secKey === 'auto' && !/\s/.test(k) && /^[A-Za-z]+$/.test(k)) {
+        autoSingleWords.push(`"${k}" => "${v}"`);
+      }
+      const low = k.toLowerCase();
+      if (!caseVariantBuckets.has(low)) caseVariantBuckets.set(low, []);
+      caseVariantBuckets.get(low).push({ sec: secKey, en: k, zh: v });
+    }
+  }
+  const caseVariantDrifts = [];
+  for (const [low, list] of caseVariantBuckets) {
+    if (list.length < 2 || ALLOWED_CASE_SPLIT_KEYS.has(low)) continue;
+    const distinctZh = new Set(list.map((x) => x.zh));
+    if (distinctZh.size > 1) {
+      caseVariantDrifts.push(list.map((x) => `[${x.sec}] "${x.en}"="${x.zh}"`).join(' vs '));
+    }
+  }
 
   console.log(`目標軟體版本:          v${asarInfo.version} (前端套件 ${(mainJs.length / 1024 / 1024).toFixed(2)} MB)`);
   console.log(`字典有效唯一詞條數:    ${existingKeys.size} 條 (總定義數: ${totalEntries})`);
@@ -1062,8 +1226,21 @@ async function runScan(options = {}) {
   console.log(`輸入框提示詞覆蓋率:    ${allPlaceholders.length - untranslatedPlaceholders.length} / ${allPlaceholders.length}`);
   console.log(`前端元件介面覆蓋率:    ${allReactUi.length - untranslatedReactUi.length} / ${allReactUi.length}`);
   console.log(`內建技能描述覆蓋率:    ${skillDescriptions.length - untranslatedSkills.length} / ${skillDescriptions.length}`);
+  console.log(
+    `隔離邊界健檢:          ${totalIsolationAnchors - missingIsolationAnchors.length} / ${totalIsolationAnchors} 錨點存活，動態規則負向探針${
+      overreachingRules.length === 0 ? '全數通過' : `發現 ${overreachingRules.length} 項過寬`
+    }`
+  );
   console.log('--------------------------------------------------');
 
+  if (missingIsolationAnchors.length > 0) {
+    console.log('[邊界告警] 以下 DOM 隔離錨點未於新版前端出現（請確認是否改名以免誤譯使用者內容）：');
+    for (const item of missingIsolationAnchors) console.log('  - ' + item);
+  }
+  if (overreachingRules.length > 0) {
+    console.log('[邊界告警] 以下 DYNAMIC_RULES 正則過寬，誤匹配非介面探針：');
+    for (const item of overreachingRules) console.log('  - ' + item);
+  }
   if (duplicateConflict.length > 0) {
     console.log('[警告] 發現跨區翻譯不一致的衝突鍵：');
     for (const item of duplicateConflict) console.log('  - ' + item);
@@ -1071,6 +1248,14 @@ async function runScan(options = {}) {
   if (duplicateSame.length > 0) {
     console.log('[提示] 發現重複定義的相同詞條：');
     for (const item of duplicateSame) console.log('  - ' + item);
+  }
+  if (caseVariantDrifts.length > 0) {
+    console.log('[提示] 發現大小寫變體譯文不一致（可檢查是否無意分歧）：');
+    for (const item of caseVariantDrifts) console.log('  - ' + item);
+  }
+  if (autoSingleWords.length > 0) {
+    console.log('[提示] "auto" 分區含有高碰撞風險的純單字詞條（建議人工覆核並移至正式分區）：');
+    for (const item of autoSingleWords) console.log('  - ' + item);
   }
   if (emptyEntries.length > 0) {
     console.log('[提示] 尚有空白待填詞條：');
@@ -1093,20 +1278,27 @@ async function runScan(options = {}) {
     if (provider.type === 'none') {
       console.log('\n[警告] 已設定為 Gemini API 模式但找不到金鑰（請至選單 [4] 設定），本次略過自動翻譯。');
     } else {
-      console.log(
-        `\n正在透過 ${provider.label} 自動翻譯 ${allMissingStrings.length} 筆新增英文詞條並寫入 "auto" 分區...`
+      const autoEligibleStrings = allMissingStrings.filter(
+        (s) => /\s/.test(s) || !/^[A-Za-z]+$/.test(s)
       );
-      const { results: translatedMap, hadError } = await translateMissingStrings(
-        allMissingStrings,
-        activeMode
-      );
-      autoTranslateCompleted = !hadError;
-      dictInfo.raw.auto = dictInfo.raw.auto || {};
-      for (const [en, zh] of Object.entries(translatedMap)) {
-        dictInfo.raw.auto[en] = zh;
-        existingKeys.add(en);
-        autoTranslatedCount++;
-        console.log(`  + "${en}" => "${zh}"`);
+      if (autoEligibleStrings.length === 0) {
+        console.log('\n[提示] 剩餘未翻譯項目皆為純英文單字，為避免全域互串已略過自動翻譯，請人工覆核。');
+      } else {
+        console.log(
+          `\n正在透過 ${provider.label} 自動翻譯 ${autoEligibleStrings.length} 筆新增英文詞條並寫入 "auto" 分區...`
+        );
+        const { results: translatedMap, hadError } = await translateMissingStrings(
+          autoEligibleStrings,
+          activeMode
+        );
+        autoTranslateCompleted = !hadError;
+        dictInfo.raw.auto = dictInfo.raw.auto || {};
+        for (const [en, zh] of Object.entries(translatedMap)) {
+          dictInfo.raw.auto[en] = zh;
+          existingKeys.add(en);
+          autoTranslatedCount++;
+          console.log(`  + "${en}" => "${zh}"`);
+        }
       }
     }
   } else if (allMissingStrings.length > 0) {
@@ -1137,6 +1329,7 @@ async function runScan(options = {}) {
   }
 
   const remainingMissing = allMissingStrings.length - autoTranslatedCount;
+  const boundaryBroken = missingIsolationAnchors.length > 0 || overreachingRules.length > 0;
   const anchorBroken =
     asarInfo.labels.length === 0 ||
     allSettings.length === 0 ||
@@ -1144,13 +1337,38 @@ async function runScan(options = {}) {
     allReactUi.length === 0;
   if (anchorBroken) {
     console.log('[警告] 掃描錨點失效（部分核心分類擷取總數為 0），目標版本前端打包結構可能已變更。');
+  } else if (boundaryBroken) {
+    console.log('[警告] 隔離邊界健檢未通過，請先確認上述 [邊界告警] 項目再行發版。');
   } else if (
     remainingMissing === 0 &&
     duplicateConflict.length === 0 &&
     duplicateSame.length === 0 &&
     emptyEntries.length === 0
   ) {
-    console.log('檢驗通過：所有核心選單、設定項目、快捷指令、提示詞、前端元件介面與內建技能均 100% 完整覆蓋且無衝突鍵。');
+    console.log('檢驗通過：所有核心選單、設定項目、快捷指令、提示詞、前端元件介面與內建技能均 100% 完整覆蓋且隔離邊界正常。');
+  }
+
+  const dynVisibleCount = uncoveredDynamicVisible.size;
+  const dynAuxCount = uncoveredDynamicAux.size;
+  if (dynVisibleCount > 0 || dynAuxCount > 0) {
+    const hint = showDynamic ? '' : '（加 --dynamic 檢視清單）';
+    console.log(
+      `動態樣板審計 (非阻斷): 可見文字 ${dynVisibleCount} 條 / 屬性 ${dynAuxCount} 條未對應 DYNAMIC_RULES${hint}`
+    );
+    if (showDynamic) {
+      if (dynVisibleCount > 0) {
+        console.log('\n[未對應動態樣板 — 可見文字（高優先評估）]：');
+        for (const [tpl, cnt] of uncoveredDynamicVisible) {
+          console.log(`    (${cnt}x) ${tpl}`);
+        }
+      }
+      if (dynAuxCount > 0) {
+        console.log('\n[未對應動態樣板 — 屬性／無障礙標籤（供參考）]：');
+        for (const [tpl, cnt] of uncoveredDynamicAux) {
+          console.log(`    (${cnt}x) ${tpl}`);
+        }
+      }
+    }
   }
 
   if ((syncMeta || autoTranslatedCount > 0) && dictInfo.raw && dictInfo.raw._meta) {
@@ -1176,7 +1394,7 @@ async function runScan(options = {}) {
     }
   }
   console.log('==================================================');
-  return !anchorBroken && remainingMissing === 0;
+  return !anchorBroken && !boundaryBroken && remainingMissing === 0;
 }
 
 if (require.main === module) {
@@ -1190,8 +1408,9 @@ if (require.main === module) {
       });
   } else {
     const sync = process.argv.includes('--sync');
+    const showDynamic = process.argv.includes('--dynamic');
     const forceAuto = process.argv.includes('--auto-translate') ? true : undefined;
-    runScan({ sync, autoTranslate: forceAuto }).catch((err) => {
+    runScan({ sync, autoTranslate: forceAuto, showDynamic }).catch((err) => {
       console.error('[錯誤]', err.message);
       process.exit(1);
     });

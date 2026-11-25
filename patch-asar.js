@@ -93,6 +93,17 @@ function writeFileAtomicSync(targetPath, data) {
   try {
     fs.renameSync(tmpPath, targetPath);
   } catch (err) {
+    if (err && (err.code === 'EPERM' || err.code === 'EBUSY')) {
+      try {
+        fs.copyFileSync(tmpPath, targetPath);
+        try {
+          if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+        } catch (_) {}
+        return;
+      } catch (copyErr) {
+        err = copyErr;
+      }
+    }
     try {
       if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
     } catch (_) {}
@@ -886,7 +897,8 @@ if (require.main === module) {
     printMenuOptions();
   } else if (arg === '--scan') {
     const { runScan } = require('./scan-ui-strings.js');
-    runScan({ sync: true }).catch((err) => {
+    const showDynamic = process.argv.includes('--dynamic');
+    runScan({ sync: true, showDynamic }).catch((err) => {
       console.error('[錯誤]', err.message);
       process.exit(1);
     });

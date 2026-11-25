@@ -220,8 +220,15 @@
       }
     }
     if (label.endsWith('...')) {
+      const asEllipsis = label.slice(0, -3) + '…';
       const base = label.slice(0, -3).trim();
-      if (existingKeys.has(base) || existingKeys.has(base.replace(/\s+/g, ' '))) return true;
+      if (
+        existingKeys.has(asEllipsis) ||
+        existingKeys.has(base) ||
+        existingKeys.has(base.replace(/\s+/g, ' '))
+      ) {
+        return true;
+      }
     }
     if (label.endsWith('.')) {
       const withoutDot = label.slice(0, -1).trim();
@@ -244,9 +251,145 @@
     return false;
   }
 
+  function replaceTopLevelInterpolations(templateStr, replacement) {
+    const src = String(templateStr || '');
+    let out = '';
+    let i = 0;
+    while (i < src.length) {
+      if (src[i] === '\\' && i + 1 < src.length) {
+        out += src[i] + src[i + 1];
+        i += 2;
+        continue;
+      }
+      if (src[i] === '$' && src[i + 1] === '{') {
+        let depth = 1;
+        let quote = '';
+        let j = i + 2;
+        for (; j < src.length; j++) {
+          const ch = src[j];
+          if (quote) {
+            if (ch === '\\') {
+              j++;
+              continue;
+            }
+            if (ch === quote) quote = '';
+            continue;
+          }
+          if (ch === '"' || ch === "'" || ch === '`') {
+            quote = ch;
+            continue;
+          }
+          if (ch === '{') depth++;
+          else if (ch === '}') {
+            depth--;
+            if (depth === 0) {
+              j++;
+              break;
+            }
+          }
+        }
+        out += replacement;
+        i = j;
+      } else {
+        out += src[i];
+        i++;
+      }
+    }
+    return out;
+  }
+
+  function isTemplateCoveredByDynamic(rawTemplate) {
+    const tpl = String(rawTemplate || '').trim();
+    if (!tpl || !tpl.includes('${')) return false;
+    const probes = [
+      replaceTopLevelInterpolations(tpl, '3'),
+      replaceTopLevelInterpolations(tpl, 'Example'),
+      replaceTopLevelInterpolations(tpl, 'Worktree'),
+      replaceTopLevelInterpolations(tpl, 'https://example.com')
+    ];
+    for (let p = 0; p < probes.length; p++) {
+      const candidate = probes[p].trim();
+      for (let i = 0; i < DYNAMIC_RULES.length; i++) {
+        if (DYNAMIC_RULES[i].regex.test(candidate)) return true;
+      }
+    }
+    return false;
+  }
+
+  const ISOLATED_DATA_ATTRS = [
+    'data-markdown-root',
+    'data-lexical-editor',
+    'data-quotable',
+    'data-quotable-inline',
+    'data-file-uri',
+    'data-uri',
+    'data-project-name',
+    'data-repo-slug',
+    'data-ssh-host'
+  ];
+
+  const ISOLATED_TESTIDS = new Set([
+    'user-message-content',
+    'pending-user-messages',
+    'transcript-line-text',
+    'browser-subagent-thinking',
+    'ask-question-header-text',
+    'ask-question-option-text',
+    'comment-card-text',
+    'pill-comment-anchor-text',
+    'subagent-tab-header-title',
+    'side-question-tab-header-name',
+    'file-title-name',
+    'branch-pill-label',
+    'branch-option',
+    'branch-repo-label',
+    'attached-context-pill',
+    'voice-picker-name',
+    'voice-settings-name',
+    'automation-name',
+    'browser-url-display',
+    'url-security-host',
+    'external-link-confirm-uri',
+    'webview-download-filename',
+    'settings-error-messages-card',
+    'sidecar-logs-content',
+    'csv-file-viewer',
+    'code-gutter',
+    'code-gutter-diff',
+    'coordinator-card-title',
+    'coordinator-card-latest-line',
+    'coordinator-hover-card-title',
+    'coordinator-hover-card-description',
+    'sidebar-agent-hover-card-title',
+    'sidebar-agent-hover-card-description',
+    'context-provider-hover-card-title',
+    'ssh-connect-host-option',
+    'markdown-code-block-preview',
+    'plugin-detail-footer-author',
+    'plugin-detail-footer-version'
+  ]);
+
+  const ISOLATED_ARIA_LABELS = new Set(['File Viewer', 'Virtual File Viewer']);
+
+  const CASCADE_PANE_TESTIDS = new Set([
+    'conversation-view',
+    'subagent-tab-conversation',
+    'side-question-tab-conversation'
+  ]);
+
   if (typeof window === 'undefined') {
     if (typeof module === 'object' && module && module.exports) {
-      module.exports = { SHORTCUT_SUFFIX_RE, DYNAMIC_RULES, isCoveredByDictOrDynamic };
+      module.exports = {
+        SHORTCUT_SUFFIX_RE,
+        DYNAMIC_RULES,
+        ISOLATED_DATA_ATTRS,
+        ISOLATED_TESTIDS,
+        ISOLATED_ARIA_LABELS,
+        CASCADE_PANE_TESTIDS,
+        isCoveredByDictOrDynamic,
+        replaceTopLevelInterpolations,
+        isTemplateCoveredByDynamic
+      };
     }
     return;
   }
@@ -300,44 +443,6 @@
     'hljs-',
     'cm-'
   ];
-
-  const ISOLATED_TESTIDS = new Set([
-    'user-message-content',
-    'pending-user-messages',
-    'transcript-line-text',
-    'browser-subagent-thinking',
-    'ask-question-header-text',
-    'ask-question-option-text',
-    'comment-card-text',
-    'pill-comment-anchor-text',
-    'subagent-tab-header-title',
-    'side-question-tab-header-name',
-    'file-title-name',
-    'branch-pill-label',
-    'branch-option',
-    'branch-repo-label',
-    'attached-context-pill',
-    'voice-picker-name',
-    'voice-settings-name',
-    'automation-name',
-    'browser-url-display',
-    'url-security-host',
-    'external-link-confirm-uri',
-    'webview-download-filename',
-    'settings-error-messages-card',
-    'sidecar-logs-content',
-    'csv-file-viewer',
-    'code-gutter',
-    'code-gutter-diff'
-  ]);
-
-  const ISOLATED_ARIA_LABELS = new Set(['File Viewer', 'Virtual File Viewer']);
-
-  const CASCADE_PANE_TESTIDS = new Set([
-    'conversation-view',
-    'subagent-tab-conversation',
-    'side-question-tab-conversation'
-  ]);
 
   const TRANSLATABLE_ATTRS = ['placeholder', 'title', 'aria-label'];
 
@@ -436,19 +541,13 @@
       if (cur.isContentEditable || ce === 'true' || ce === 'plaintext-only' || ce === '') {
         return true;
       }
-      if (
-        cur.hasAttribute('data-icon') ||
-        cur.getAttribute('translate') === 'no' ||
-        cur.hasAttribute('data-markdown-root') ||
-        cur.hasAttribute('data-lexical-editor') ||
-        cur.hasAttribute('data-quotable') ||
-        cur.hasAttribute('data-quotable-inline') ||
-        cur.hasAttribute('data-file-uri') ||
-        cur.hasAttribute('data-uri') ||
-        cur.hasAttribute('data-project-name') ||
-        cur.hasAttribute('data-repo-slug')
-      ) {
+      if (cur.hasAttribute('data-icon') || cur.getAttribute('translate') === 'no') {
         return true;
+      }
+      for (let i = 0; i < ISOLATED_DATA_ATTRS.length; i++) {
+        if (cur.hasAttribute(ISOLATED_DATA_ATTRS[i])) {
+          return true;
+        }
       }
       const cls = cur.classList;
       if (cls && cls.length > 0) {
@@ -527,6 +626,8 @@
       if (flatDict[normBase]) return flatDict[normBase] + '...';
     }
     if (trimmedText.endsWith('...')) {
+      const asEllipsis = trimmedText.slice(0, -3) + '…';
+      if (flatDict[asEllipsis]) return flatDict[asEllipsis];
       const base = trimmedText.slice(0, -3).trim();
       if (flatDict[base]) return flatDict[base] + '...';
       const normBase = base.replace(/\s+/g, ' ');

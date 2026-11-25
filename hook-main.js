@@ -126,6 +126,12 @@
         return dict[asDots];
       }
     }
+    if (trimmed.endsWith('...')) {
+      const asEllipsis = trimmed.slice(0, -3) + '…';
+      if (dict[asEllipsis]) {
+        return dict[asEllipsis];
+      }
+    }
     if (trimmed.endsWith('…') || trimmed.endsWith('...')) {
       const base = trimmed.replace(/(?:\.\.\.|…)$/, '').trim();
       if (dict[base]) {
@@ -601,7 +607,7 @@
             'Wait-Process -Id $env:AGY_OLD_PID -Timeout 120 -ErrorAction SilentlyContinue',
             'Start-Sleep -Seconds 2',
             'if ($env:AGY_INST_PID) { Wait-Process -Id $env:AGY_INST_PID -Timeout 300 -ErrorAction SilentlyContinue }',
-            'if ($env:AGY_INST_NAME) { Wait-Process -Name $env:AGY_INST_NAME -Timeout 300 -ErrorAction SilentlyContinue }',
+            'if ($env:AGY_INST_NAME) { Wait-Process -Name "$env:AGY_INST_NAME" -Timeout 300 -ErrorAction SilentlyContinue }',
             'Start-Sleep -Seconds 2',
             '$env:ELECTRON_RUN_AS_NODE = 1',
             '& $env:AGY_APP_EXE $env:AGY_PATCH_JS --post-update $env:AGY_UPDATE_MODE | Out-Null'
